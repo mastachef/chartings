@@ -14,13 +14,25 @@ const timeframeMap: Record<Timeframe, { interval: string; range: string }> = {
   '3M': { interval: '1mo', range: 'max' },
 }
 
+// Use Vite proxy in development, CORS proxy in production
+function getYahooUrl(path: string): string {
+  const isDev = import.meta.env.DEV
+  if (isDev) {
+    return `/api/yahoo${path}`
+  }
+  // Use allorigins.win as CORS proxy for production
+  const yahooUrl = `https://query1.finance.yahoo.com${path}`
+  return `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`
+}
+
 export async function fetchYahooKlines(
   symbol: string,
   timeframe: Timeframe
 ): Promise<CandleData[]> {
   const config = timeframeMap[timeframe]
 
-  const url = `/api/yahoo/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${config.interval}&range=${config.range}`
+  const path = `/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${config.interval}&range=${config.range}`
+  const url = getYahooUrl(path)
 
   const response = await fetch(url)
   if (!response.ok) {
@@ -102,7 +114,8 @@ function aggregateTo4Hour(hourlyCandles: CandleData[]): CandleData[] {
 }
 
 export async function searchYahooSymbols(query: string): Promise<Array<{ symbol: string; name: string }>> {
-  const url = `/api/yahoo/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0`
+  const path = `/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0`
+  const url = getYahooUrl(path)
 
   try {
     const response = await fetch(url)
