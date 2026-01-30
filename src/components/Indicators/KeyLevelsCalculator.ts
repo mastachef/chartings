@@ -1,5 +1,4 @@
 import type { CandleData } from '@/types/chart'
-import type { Time } from 'lightweight-charts'
 
 export interface KeyLevel {
   price: number
@@ -36,33 +35,6 @@ function getDateFromTimestamp(timestamp: number): Date {
   return new Date(timestamp * 1000)
 }
 
-function isSameDay(date1: Date, date2: Date): boolean {
-  return (
-    date1.getUTCFullYear() === date2.getUTCFullYear() &&
-    date1.getUTCMonth() === date2.getUTCMonth() &&
-    date1.getUTCDate() === date2.getUTCDate()
-  )
-}
-
-function isSameWeek(date1: Date, date2: Date): boolean {
-  const getWeekStart = (d: Date): Date => {
-    const result = new Date(d)
-    const day = result.getUTCDay()
-    const diff = result.getUTCDate() - day + (day === 0 ? -6 : 1)
-    result.setUTCDate(diff)
-    result.setUTCHours(0, 0, 0, 0)
-    return result
-  }
-  return getWeekStart(date1).getTime() === getWeekStart(date2).getTime()
-}
-
-function isSameMonth(date1: Date, date2: Date): boolean {
-  return (
-    date1.getUTCFullYear() === date2.getUTCFullYear() &&
-    date1.getUTCMonth() === date2.getUTCMonth()
-  )
-}
-
 export function calculateKeyLevels(data: CandleData[]): KeyLevelsData {
   if (data.length === 0) {
     return {
@@ -73,7 +45,6 @@ export function calculateKeyLevels(data: CandleData[]): KeyLevelsData {
     }
   }
 
-  const now = new Date()
   const sortedData = [...data].sort((a, b) => (a.time as number) - (b.time as number))
 
   // Group candles by day, week, month, year

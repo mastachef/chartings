@@ -11,7 +11,7 @@ import { calculateGuppy, type GuppyData } from '../Indicators/GuppyCalculator'
 import { calculateKeyLevels, keyLevelsToArray, type KeyLevel } from '../Indicators/KeyLevelsCalculator'
 import { KeyLevelsTimer } from '../Indicators/KeyLevelsTimer'
 import { FavoritesBar } from '../Favorites/FavoritesBar'
-import { fetchBTCProductionCost, interpolateProductionCost, type BTCProductionCostData } from '@/api/crypto/btcProductionCostApi'
+import { fetchBTCProductionCost, interpolateProductionCost } from '@/api/crypto/btcProductionCostApi'
 import type { DataSource } from '@/types/chart'
 import type { VRVPData, HullSuiteData } from '@/types/chart'
 import styles from './ChartContainer.module.css'
@@ -111,7 +111,6 @@ export function ChartContainer({ config, onConfigChange }: ChartContainerProps) 
         top: 0.85,
         bottom: 0,
       },
-      drawTicks: false,
     })
 
     volumeSeriesRef.current = volumeSeries

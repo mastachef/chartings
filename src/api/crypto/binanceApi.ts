@@ -129,7 +129,7 @@ async function getBinanceSymbols(): Promise<Array<{ symbol: string; name: string
         name: s.baseAsset,
       }))
 
-    return cachedSymbols
+    return cachedSymbols ?? []
   } catch {
     return []
   }

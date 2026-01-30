@@ -10,7 +10,10 @@ const timeframeMap: Record<Timeframe, string> = {
   '1h': '1h',
   '4h': '4h',
   '1d': '1d',
+  '3d': '3d',
   '1w': '1w',
+  '1M': '1M',
+  '3M': '1M',
 }
 
 export async function fetchBinanceKlines(
