@@ -14,15 +14,15 @@ const timeframeMap: Record<Timeframe, { interval: string; range: string }> = {
   '3M': { interval: '1mo', range: 'max' },
 }
 
-// Use Vite proxy in development, CORS proxy in production
+// Use Vite proxy in development, corsproxy.io in production (faster than allorigins)
 function getYahooUrl(path: string): string {
   const isDev = import.meta.env.DEV
   if (isDev) {
     return `/api/yahoo${path}`
   }
-  // Use allorigins.win as CORS proxy for production
+  // Use corsproxy.io - faster CORS proxy
   const yahooUrl = `https://query1.finance.yahoo.com${path}`
-  return `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`
+  return `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`
 }
 
 export async function fetchYahooKlines(
