@@ -1,0 +1,50 @@
+.container {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  gap: 12px;
+  padding: 6px 10px;
+  background-color: rgba(26, 26, 46, 0.9);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  z-index: 10;
+}
+
+.timer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.label {
+  font-weight: 600;
+}
+
+.value {
+  color: var(--text-secondary);
+  font-family: monospace;
+}
+
+@media (max-width: 768px) {
+  .container {
+    gap: 8px;
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+
+  .timer {
+    gap: 3px;
+  }
+}
+
+@media (max-width: 480px) {
+  .container {
+    flex-wrap: wrap;
+    gap: 6px;
+    max-width: calc(100% - 16px);
+    font-size: 9px;
+    padding: 3px 6px;
+  }
+}
