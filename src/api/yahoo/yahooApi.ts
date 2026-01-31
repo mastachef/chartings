@@ -7,22 +7,58 @@ const timeframeMap: Record<Timeframe, { interval: string; range: string }> = {
   '30m': { interval: '30m', range: '60d' },
   '1h': { interval: '1h', range: '2y' },
   '4h': { interval: '1h', range: '2y' },
-  '1d': { interval: '1d', range: 'max' },
-  '3d': { interval: '1d', range: 'max' },
+  '1d': { interval: '1d', range: '5y' },
+  '3d': { interval: '1d', range: '5y' },
   '1w': { interval: '1wk', range: 'max' },
   '1M': { interval: '1mo', range: 'max' },
   '3M': { interval: '1mo', range: 'max' },
 }
 
-// Use Vite proxy in development, corsproxy.io in production (faster than allorigins)
-function getYahooUrl(path: string): string {
+// List of CORS proxies to try in order
+const CORS_PROXIES = [
+  (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  (url: string) => `https://proxy.cors.sh/${url}`,
+]
+
+async function fetchWithCorsProxy(yahooUrl: string): Promise<Response> {
   const isDev = import.meta.env.DEV
+
   if (isDev) {
-    return `/api/yahoo${path}`
+    // Use Vite proxy in development
+    const path = yahooUrl.replace('https://query1.finance.yahoo.com', '')
+    return fetch(`/api/yahoo${path}`)
   }
-  // Use corsproxy.io - faster CORS proxy
-  const yahooUrl = `https://query1.finance.yahoo.com${path}`
-  return `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`
+
+  // Try each proxy until one works
+  let lastError: Error | null = null
+
+  for (const proxyFn of CORS_PROXIES) {
+    try {
+      const proxyUrl = proxyFn(yahooUrl)
+      const response = await fetch(proxyUrl, {
+        headers: {
+          'Accept': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        return response
+      }
+
+      // If 403/429, try next proxy
+      if (response.status === 403 || response.status === 429) {
+        continue
+      }
+
+      return response
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error('Fetch failed')
+      continue
+    }
+  }
+
+  throw lastError || new Error('All CORS proxies failed')
 }
 
 export async function fetchYahooKlines(
@@ -31,10 +67,10 @@ export async function fetchYahooKlines(
 ): Promise<CandleData[]> {
   const config = timeframeMap[timeframe]
 
-  const path = `/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${config.interval}&range=${config.range}`
-  const url = getYahooUrl(path)
+  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${config.interval}&range=${config.range}`
 
-  const response = await fetch(url)
+  const response = await fetchWithCorsProxy(yahooUrl)
+
   if (!response.ok) {
     throw new Error(`Yahoo Finance API error: ${response.status}`)
   }
@@ -114,11 +150,10 @@ function aggregateTo4Hour(hourlyCandles: CandleData[]): CandleData[] {
 }
 
 export async function searchYahooSymbols(query: string): Promise<Array<{ symbol: string; name: string }>> {
-  const path = `/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0`
-  const url = getYahooUrl(path)
+  const yahooUrl = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0`
 
   try {
-    const response = await fetch(url)
+    const response = await fetchWithCorsProxy(yahooUrl)
     if (!response.ok) {
       return []
     }
