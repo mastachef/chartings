@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { CandleData, Timeframe, DataSource } from '@/types/chart'
+import type { CandleData, Timeframe } from '@/types/chart'
 import { fetchCryptoCompareKlines, fetchMoreCryptoHistory } from '@/api/crypto/cryptoCompareApi'
 import { fetchCoinGeckoOHLC } from '@/api/crypto/coinGeckoApi'
 import { fetchBinanceKlines } from '@/api/crypto/binanceApi'
-import { fetchYahooKlines } from '@/api/yahoo/yahooApi'
 
 interface UseCandlestickDataResult {
   data: CandleData[]
@@ -17,8 +16,7 @@ interface UseCandlestickDataResult {
 
 export function useCandlestickData(
   ticker: string,
-  timeframe: Timeframe,
-  dataSource: DataSource
+  timeframe: Timeframe
 ): UseCandlestickDataResult {
   const [data, setData] = useState<CandleData[]>([])
   const [loading, setLoading] = useState(true)
@@ -26,75 +24,65 @@ export function useCandlestickData(
   const [error, setError] = useState<string | null>(null)
   const [hasMoreHistory, setHasMoreHistory] = useState(true)
   const loadingMoreRef = useRef(false)
-  const fetchVersionRef = useRef(0) // Track fetch version to prevent stale updates
+  const fetchVersionRef = useRef(0)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
     setHasMoreHistory(true)
 
-    // Increment version to invalidate any pending fetches
     const currentVersion = ++fetchVersionRef.current
 
     try {
       let candles: CandleData[]
+      let lastError: Error | null = null
 
-      if (dataSource === 'binance') {
-        // Try multiple sources in order: CryptoCompare -> Binance -> CoinGecko
-        let lastError: Error | null = null
-
-        // 1. Try CryptoCompare first (good historical data)
-        try {
-          candles = await fetchCryptoCompareKlines(ticker, timeframe)
-          if (fetchVersionRef.current !== currentVersion) return // Stale request
-          if (candles.length >= 10) {
-            setData(candles)
-            setLoading(false)
-            return
-          }
-        } catch (e) {
-          if (fetchVersionRef.current !== currentVersion) return // Stale request
-          lastError = e instanceof Error ? e : new Error('CryptoCompare failed')
+      // 1. Try CryptoCompare first (good historical data)
+      try {
+        candles = await fetchCryptoCompareKlines(ticker, timeframe)
+        if (fetchVersionRef.current !== currentVersion) return
+        if (candles.length >= 10) {
+          setData(candles)
+          setLoading(false)
+          return
         }
-
-        // 2. Try Binance (real-time, many pairs)
-        try {
-          candles = await fetchBinanceKlines(ticker, timeframe)
-          if (fetchVersionRef.current !== currentVersion) return // Stale request
-          if (candles.length >= 10) {
-            setData(candles)
-            setLoading(false)
-            return
-          }
-        } catch (e) {
-          if (fetchVersionRef.current !== currentVersion) return // Stale request
-          lastError = e instanceof Error ? e : new Error('Binance failed')
-        }
-
-        // 3. Try CoinGecko (searches by name, good for new tokens)
-        try {
-          candles = await fetchCoinGeckoOHLC(ticker, timeframe)
-          if (fetchVersionRef.current !== currentVersion) return // Stale request
-          if (candles.length > 0) {
-            setData(candles)
-            setLoading(false)
-            return
-          }
-        } catch (e) {
-          if (fetchVersionRef.current !== currentVersion) return // Stale request
-          lastError = e instanceof Error ? e : new Error('CoinGecko failed')
-        }
-
-        // All sources failed
-        throw lastError || new Error(`Symbol ${ticker} not found on any exchange`)
-      } else {
-        candles = await fetchYahooKlines(ticker, timeframe)
-        if (fetchVersionRef.current !== currentVersion) return // Stale request
+      } catch (e) {
+        if (fetchVersionRef.current !== currentVersion) return
+        lastError = e instanceof Error ? e : new Error('CryptoCompare failed')
       }
 
-      setData(candles)
+      // 2. Try Binance (real-time, many pairs)
+      try {
+        candles = await fetchBinanceKlines(ticker, timeframe)
+        if (fetchVersionRef.current !== currentVersion) return
+        if (candles.length >= 10) {
+          setData(candles)
+          setLoading(false)
+          return
+        }
+      } catch (e) {
+        if (fetchVersionRef.current !== currentVersion) return
+        lastError = e instanceof Error ? e : new Error('Binance failed')
+      }
+
+      // 3. Try CoinGecko (searches by name, good for new tokens)
+      try {
+        candles = await fetchCoinGeckoOHLC(ticker, timeframe)
+        if (fetchVersionRef.current !== currentVersion) return
+        if (candles.length > 0) {
+          setData(candles)
+          setLoading(false)
+          return
+        }
+      } catch (e) {
+        if (fetchVersionRef.current !== currentVersion) return
+        lastError = e instanceof Error ? e : new Error('CoinGecko failed')
+      }
+
+      // All sources failed
+      throw lastError || new Error(`Symbol ${ticker} not found on any exchange`)
     } catch (err) {
-      if (fetchVersionRef.current !== currentVersion) return // Stale request
+      if (fetchVersionRef.current !== currentVersion) return
       setError(err instanceof Error ? err.message : 'Failed to fetch data')
       setData([])
     } finally {
@@ -102,11 +90,10 @@ export function useCandlestickData(
         setLoading(false)
       }
     }
-  }, [ticker, timeframe, dataSource])
+  }, [ticker, timeframe])
 
   const loadMoreHistory = useCallback(async () => {
     if (loadingMoreRef.current || data.length === 0 || !hasMoreHistory) return
-    if (dataSource !== 'binance') return // Only crypto supports loading more
 
     loadingMoreRef.current = true
     setLoadingMore(true)
@@ -120,7 +107,6 @@ export function useCandlestickData(
         return
       }
 
-      // Merge with existing data, avoiding duplicates
       const existingTimes = new Set(data.map(c => c.time as number))
       const newCandles = moreCandles.filter(c => !existingTimes.has(c.time as number))
 
@@ -136,7 +122,7 @@ export function useCandlestickData(
       setLoadingMore(false)
       loadingMoreRef.current = false
     }
-  }, [data, ticker, timeframe, dataSource, hasMoreHistory])
+  }, [data, ticker, timeframe, hasMoreHistory])
 
   useEffect(() => {
     fetchData()

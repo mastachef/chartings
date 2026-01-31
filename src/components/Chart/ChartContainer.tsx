@@ -12,7 +12,6 @@ import { calculateKeyLevels, keyLevelsToArray, type KeyLevel } from '../Indicato
 import { KeyLevelsTimer } from '../Indicators/KeyLevelsTimer'
 import { FavoritesBar } from '../Favorites/FavoritesBar'
 import { fetchBTCProductionCost, interpolateProductionCost } from '@/api/crypto/btcProductionCostApi'
-import type { DataSource } from '@/types/chart'
 import type { VRVPData, HullSuiteData } from '@/types/chart'
 import styles from './ChartContainer.module.css'
 
@@ -39,8 +38,7 @@ export function ChartContainer({ config, onConfigChange }: ChartContainerProps) 
 
   const { data, loading, loadingMore, error, loadMoreHistory, hasMoreHistory } = useCandlestickData(
     config.ticker,
-    config.timeframe,
-    config.dataSource
+    config.timeframe
   )
 
   useLayoutEffect(() => {
@@ -499,8 +497,8 @@ export function ChartContainer({ config, onConfigChange }: ChartContainerProps) 
     chartRef.current.timeScale().setVisibleLogicalRange({ from, to })
   }, [data])
 
-  const handleSelectFavorite = useCallback((ticker: string, dataSource: DataSource) => {
-    onConfigChange({ ticker, dataSource })
+  const handleSelectFavorite = useCallback((ticker: string) => {
+    onConfigChange({ ticker })
   }, [onConfigChange])
 
 
@@ -508,7 +506,6 @@ export function ChartContainer({ config, onConfigChange }: ChartContainerProps) 
     <div className={styles.wrapper}>
       <FavoritesBar
         currentTicker={config.ticker}
-        currentDataSource={config.dataSource}
         onSelectTicker={handleSelectFavorite}
       />
       <ChartToolbar

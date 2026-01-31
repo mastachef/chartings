@@ -1,14 +1,11 @@
 import type { IChartApi, ISeriesApi, CandlestickData, HistogramData, Time } from 'lightweight-charts'
 
-export type DataSource = 'binance' | 'yahoo'
-
 export type Timeframe = '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d' | '3d' | '1w' | '1M' | '3M'
 
 export interface ChartConfig {
   id: string
   ticker: string
   timeframe: Timeframe
-  dataSource: DataSource
   showVRVP: boolean
   showHullSuite: boolean
   showRSI: boolean
@@ -76,17 +73,4 @@ export interface BinanceKline {
   numberOfTrades: number
   takerBuyBaseAssetVolume: string
   takerBuyQuoteAssetVolume: string
-}
-
-export interface YahooQuote {
-  timestamp: number[]
-  indicators: {
-    quote: Array<{
-      open: number[]
-      high: number[]
-      low: number[]
-      close: number[]
-      volume: number[]
-    }>
-  }
 }
