@@ -53,6 +53,7 @@ export function RSIChart({ data, width, onVisibleRangeChange, visibleRange }: RS
           top: 0.1,
           bottom: 0.1,
         },
+        minimumWidth: 80,
       },
       timeScale: {
         borderColor: '#27273a',

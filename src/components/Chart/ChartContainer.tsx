@@ -76,6 +76,7 @@ export function ChartContainer({ config, onConfigChange }: ChartContainerProps) 
           top: 0.1,
           bottom: 0.2,
         },
+        minimumWidth: 80,
       },
       timeScale: {
         borderColor: '#27273a',
