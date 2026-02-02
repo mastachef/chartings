@@ -134,7 +134,6 @@ export function interpolateProductionCost(
     // Find surrounding data points
     let lower = sortedCostData[0]
     let upper = sortedCostData[sortedCostData.length - 1]
-    let foundRange = false
 
     for (let i = 0; i < sortedCostData.length - 1; i++) {
       const lowerTime = sortedCostData[i].time as number
@@ -143,7 +142,6 @@ export function interpolateProductionCost(
       if (lowerTime <= t && upperTime >= t) {
         lower = sortedCostData[i]
         upper = sortedCostData[i + 1]
-        foundRange = true
         break
       }
     }
