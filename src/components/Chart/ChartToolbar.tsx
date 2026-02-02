@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import type { ChartConfig, Timeframe } from '@/types/chart'
+import type { ChartConfig, Timeframe, DataSource } from '@/types/chart'
+import { searchYahooSymbols } from '@/api/yahoo/yahooApi'
 import { searchCoinGeckoSymbols } from '@/api/crypto/coinGeckoApi'
 import styles from './ChartToolbar.module.css'
 
@@ -15,6 +16,42 @@ interface TickerSuggestion {
 }
 
 const timeframes: Timeframe[] = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '3d', '1w', '1M', '3M']
+
+// Popular stocks/ETFs/commodities for suggestions (Yahoo Finance)
+const stockSuggestions: TickerSuggestion[] = [
+  // Indices
+  { symbol: 'SPY', name: 'S&P 500 ETF' },
+  { symbol: 'QQQ', name: 'Nasdaq 100 ETF' },
+  { symbol: 'DIA', name: 'Dow Jones ETF' },
+  { symbol: 'IWM', name: 'Russell 2000 ETF' },
+  { symbol: 'DX-Y.NYB', name: 'US Dollar Index (DXY)' },
+  // Precious Metals
+  { symbol: 'GC=F', name: 'Gold Futures' },
+  { symbol: 'SI=F', name: 'Silver Futures' },
+  { symbol: 'GLD', name: 'Gold ETF (SPDR)' },
+  { symbol: 'SLV', name: 'Silver ETF (iShares)' },
+  { symbol: 'PAXG', name: 'Pax Gold' },
+  // Energy
+  { symbol: 'CL=F', name: 'Crude Oil Futures' },
+  { symbol: 'NG=F', name: 'Natural Gas Futures' },
+  { symbol: 'USO', name: 'Oil Fund ETF' },
+  // Currencies
+  { symbol: 'EURUSD=X', name: 'EUR/USD' },
+  { symbol: 'GBPUSD=X', name: 'GBP/USD' },
+  { symbol: 'USDJPY=X', name: 'USD/JPY' },
+  // Popular Stocks
+  { symbol: 'AAPL', name: 'Apple' },
+  { symbol: 'MSFT', name: 'Microsoft' },
+  { symbol: 'GOOGL', name: 'Alphabet' },
+  { symbol: 'AMZN', name: 'Amazon' },
+  { symbol: 'NVDA', name: 'NVIDIA' },
+  { symbol: 'TSLA', name: 'Tesla' },
+  { symbol: 'META', name: 'Meta' },
+  { symbol: 'AMD', name: 'AMD' },
+  // Bonds
+  { symbol: 'TLT', name: '20+ Year Treasury ETF' },
+  { symbol: 'BND', name: 'Total Bond Market ETF' },
+]
 
 // Common crypto pairs for suggestions
 const cryptoSuggestions: TickerSuggestion[] = [
@@ -63,17 +100,19 @@ export function ChartToolbar({ config, onConfigChange, onResetView }: ChartToolb
   const suggestionsRef = useRef<HTMLDivElement>(null)
   const searchTimeoutRef = useRef<number | null>(null)
   const suggestionClickedRef = useRef(false)
-  const searchVersionRef = useRef(0)
+  const searchVersionRef = useRef(0) // Track search version to prevent race conditions
 
   const handleTickerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.toUpperCase()
     setTickerInput(value)
     setSelectedIndex(-1)
 
+    // Clear previous timeout
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current)
     }
 
+    // Increment search version to invalidate pending searches
     const currentVersion = ++searchVersionRef.current
 
     if (value.length === 0) {
@@ -82,25 +121,52 @@ export function ChartToolbar({ config, onConfigChange, onResetView }: ChartToolb
       return
     }
 
-    // Show local suggestions immediately
-    const filtered = cryptoSuggestions.filter(
-      s => s.symbol.includes(value) || s.name.toUpperCase().includes(value)
-    )
-    setSuggestions(filtered)
-    setShowSuggestions(filtered.length > 0)
+    // Filter suggestions based on input
+    if (config.dataSource === 'binance') {
+      // Show local suggestions immediately
+      const filtered = cryptoSuggestions.filter(
+        s => s.symbol.includes(value) || s.name.toUpperCase().includes(value)
+      )
+      setSuggestions(filtered)
+      setShowSuggestions(filtered.length > 0)
 
-    // Also search CoinGecko for more results (debounced)
-    searchTimeoutRef.current = window.setTimeout(async () => {
-      if (value.length >= 2) {
-        const results = await searchCoinGeckoSymbols(value)
-        if (searchVersionRef.current !== currentVersion) return
-        const localSymbols = new Set(filtered.map(s => s.symbol.toUpperCase()))
-        const newResults = results.filter(r => !localSymbols.has(r.symbol.toUpperCase()))
-        const merged = [...filtered, ...newResults]
-        setSuggestions(merged)
-        setShowSuggestions(merged.length > 0)
-      }
-    }, 300)
+      // Also search CoinGecko for more results (debounced)
+      searchTimeoutRef.current = window.setTimeout(async () => {
+        if (value.length >= 2) {
+          const results = await searchCoinGeckoSymbols(value)
+          // Only update if this is still the latest search
+          if (searchVersionRef.current !== currentVersion) return
+          // Merge with local, avoiding duplicates
+          const localSymbols = new Set(filtered.map(s => s.symbol.toUpperCase()))
+          const newResults = results.filter(r => !localSymbols.has(r.symbol.toUpperCase()))
+          const merged = [...filtered, ...newResults]
+          setSuggestions(merged)
+          setShowSuggestions(merged.length > 0)
+        }
+      }, 300)
+    } else {
+      // Show local stock suggestions immediately
+      const localFiltered = stockSuggestions.filter(
+        s => s.symbol.toUpperCase().includes(value) || s.name.toUpperCase().includes(value)
+      )
+      setSuggestions(localFiltered)
+      setShowSuggestions(localFiltered.length > 0)
+
+      // Also search Yahoo API for more results (debounced)
+      searchTimeoutRef.current = window.setTimeout(async () => {
+        if (value.length >= 2) {
+          const results = await searchYahooSymbols(value)
+          // Only update if this is still the latest search
+          if (searchVersionRef.current !== currentVersion) return
+          // Merge with local, avoiding duplicates
+          const localSymbols = new Set(localFiltered.map(s => s.symbol.toUpperCase()))
+          const newResults = results.filter(r => !localSymbols.has(r.symbol.toUpperCase()))
+          const merged = [...localFiltered, ...newResults]
+          setSuggestions(merged)
+          setShowSuggestions(merged.length > 0)
+        }
+      }, 300)
+    }
   }
 
   const selectSuggestion = useCallback((suggestion: TickerSuggestion) => {
@@ -108,8 +174,10 @@ export function ChartToolbar({ config, onConfigChange, onResetView }: ChartToolb
     setSuggestions([])
     setShowSuggestions(false)
     setSelectedIndex(-1)
+    // Don't set tickerInput here - let the useEffect handle it from config.ticker
     onConfigChange({ ticker: suggestion.symbol })
     inputRef.current?.blur()
+    // Reset flag after blur handler would have run
     setTimeout(() => {
       suggestionClickedRef.current = false
     }, 300)
@@ -155,10 +223,13 @@ export function ChartToolbar({ config, onConfigChange, onResetView }: ChartToolb
   }
 
   const handleBlur = () => {
+    // Delay to allow click on suggestion
     setTimeout(() => {
+      // Don't do anything if a suggestion was clicked
       if (suggestionClickedRef.current) {
         return
       }
+      // Just hide suggestions and reset input to current ticker
       setShowSuggestions(false)
       setTickerInput(config.ticker)
     }, 150)
@@ -168,6 +239,14 @@ export function ChartToolbar({ config, onConfigChange, onResetView }: ChartToolb
     if (tickerInput.length > 0 && suggestions.length > 0) {
       setShowSuggestions(true)
     }
+  }
+
+  const handleDataSourceChange = (dataSource: DataSource) => {
+    const newTicker = dataSource === 'binance' ? 'BTCUSD' : 'AAPL'
+    setTickerInput(newTicker)
+    setSuggestions([])
+    setShowSuggestions(false)
+    onConfigChange({ dataSource, ticker: newTicker })
   }
 
   useEffect(() => {
@@ -185,6 +264,25 @@ export function ChartToolbar({ config, onConfigChange, onResetView }: ChartToolb
   return (
     <div className={styles.toolbar}>
       <div className={styles.left}>
+        <div className={styles.dataSourceToggle} role="group" aria-label="Data source">
+          <button
+            className={`${styles.sourceBtn} ${config.dataSource === 'binance' ? styles.active : ''}`}
+            onClick={() => handleDataSourceChange('binance')}
+            aria-pressed={config.dataSource === 'binance'}
+            aria-label="Switch to cryptocurrency data"
+          >
+            Crypto
+          </button>
+          <button
+            className={`${styles.sourceBtn} ${config.dataSource === 'yahoo' ? styles.active : ''}`}
+            onClick={() => handleDataSourceChange('yahoo')}
+            aria-pressed={config.dataSource === 'yahoo'}
+            aria-label="Switch to stock market data"
+          >
+            Stocks
+          </button>
+        </div>
+
         <div className={styles.tickerWrapper}>
           <label htmlFor="ticker-input" className="sr-only">Ticker symbol</label>
           <input
@@ -196,7 +294,7 @@ export function ChartToolbar({ config, onConfigChange, onResetView }: ChartToolb
             onKeyDown={handleKeyDown}
             onBlur={handleBlur}
             onFocus={handleFocus}
-            placeholder="BTCUSD"
+            placeholder={config.dataSource === 'binance' ? 'BTCUSD' : 'AAPL'}
             className={styles.tickerInput}
             autoComplete="off"
             aria-label="Enter ticker symbol"
@@ -210,7 +308,7 @@ export function ChartToolbar({ config, onConfigChange, onResetView }: ChartToolb
                   key={suggestion.symbol}
                   className={`${styles.suggestionItem} ${index === selectedIndex ? styles.selected : ''}`}
                   onMouseDown={(e) => {
-                    e.preventDefault()
+                    e.preventDefault() // Prevent blur from firing
                     selectSuggestion(suggestion)
                   }}
                   onMouseEnter={() => setSelectedIndex(index)}

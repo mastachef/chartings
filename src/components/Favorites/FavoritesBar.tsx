@@ -1,37 +1,39 @@
 import { useFavoritesStore, type FavoriteTicker } from '@/store/favoritesStore'
+import type { DataSource } from '@/types/chart'
 import styles from './FavoritesBar.module.css'
 
 interface FavoritesBarProps {
   currentTicker: string
-  onSelectTicker: (ticker: string) => void
+  currentDataSource: DataSource
+  onSelectTicker: (ticker: string, dataSource: DataSource) => void
 }
 
-export function FavoritesBar({ currentTicker, onSelectTicker }: FavoritesBarProps) {
+export function FavoritesBar({ currentTicker, currentDataSource, onSelectTicker }: FavoritesBarProps) {
   const { favorites, addFavorite, removeFavorite, isFavorite } = useFavoritesStore()
 
-  const isCurrentFavorite = isFavorite(currentTicker)
+  const isCurrentFavorite = isFavorite(currentTicker, currentDataSource)
 
   const handleAddCurrent = () => {
-    addFavorite(currentTicker)
+    addFavorite({ symbol: currentTicker, dataSource: currentDataSource })
   }
 
   const handleRemove = (e: React.MouseEvent, fav: FavoriteTicker) => {
     e.stopPropagation()
-    removeFavorite(fav.symbol)
+    removeFavorite(fav.symbol, fav.dataSource)
   }
 
   const handleSelect = (fav: FavoriteTicker) => {
-    onSelectTicker(fav.symbol)
+    onSelectTicker(fav.symbol, fav.dataSource)
   }
 
   return (
     <div className={styles.container}>
       <div className={styles.favorites}>
         {favorites.map((fav) => {
-          const isActive = fav.symbol === currentTicker
+          const isActive = fav.symbol === currentTicker && fav.dataSource === currentDataSource
           return (
             <button
-              key={fav.symbol}
+              key={`${fav.dataSource}-${fav.symbol}`}
               className={`${styles.favItem} ${isActive ? styles.active : ''}`}
               onClick={() => handleSelect(fav)}
               title={fav.symbol}
