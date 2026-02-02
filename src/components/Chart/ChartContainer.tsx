@@ -82,6 +82,7 @@ export function ChartContainer({ config, onConfigChange }: ChartContainerProps) 
         borderColor: '#27273a',
         timeVisible: true,
         secondsVisible: false,
+        rightOffset: 5,
       },
     })
 

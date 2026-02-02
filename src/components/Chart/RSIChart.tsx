@@ -15,9 +15,10 @@ export function RSIChart({ data, width, onVisibleRangeChange, visibleRange }: RS
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
-  const line75Ref = useRef<ISeriesApi<'Line'> | null>(null)
+  const line70Ref = useRef<ISeriesApi<'Line'> | null>(null)
   const line50Ref = useRef<ISeriesApi<'Line'> | null>(null)
-  const line25Ref = useRef<ISeriesApi<'Line'> | null>(null)
+  const line30Ref = useRef<ISeriesApi<'Line'> | null>(null)
+  const isSettingRange = useRef(false)
 
   useLayoutEffect(() => {
     if (!containerRef.current) return
@@ -34,7 +35,7 @@ export function RSIChart({ data, width, onVisibleRangeChange, visibleRange }: RS
         horzLines: { visible: false },
       },
       crosshair: {
-        mode: 0, // Normal mode - free cursor movement
+        mode: 0,
         vertLine: {
           color: '#6366f1',
           width: 1,
@@ -58,16 +59,17 @@ export function RSIChart({ data, width, onVisibleRangeChange, visibleRange }: RS
       timeScale: {
         borderColor: '#27273a',
         visible: false,
+        rightOffset: 5,
       },
     })
 
     chartRef.current = chart
 
     // 70 line (overbought threshold)
-    const line75 = chart.addLineSeries({
+    const line70 = chart.addLineSeries({
       color: 'rgba(239, 68, 68, 0.5)',
       lineWidth: 1,
-      lineStyle: 2, // dashed
+      lineStyle: 2,
       priceLineVisible: false,
       lastValueVisible: false,
       crosshairMarkerVisible: false,
@@ -75,7 +77,7 @@ export function RSIChart({ data, width, onVisibleRangeChange, visibleRange }: RS
         priceRange: { minValue: 0, maxValue: 100 },
       }),
     })
-    line75Ref.current = line75
+    line70Ref.current = line70
 
     // 50 line (middle)
     const line50 = chart.addLineSeries({
@@ -92,7 +94,7 @@ export function RSIChart({ data, width, onVisibleRangeChange, visibleRange }: RS
     line50Ref.current = line50
 
     // 30 line (oversold threshold)
-    const line25 = chart.addLineSeries({
+    const line30 = chart.addLineSeries({
       color: 'rgba(34, 197, 94, 0.5)',
       lineWidth: 1,
       lineStyle: 2,
@@ -103,7 +105,7 @@ export function RSIChart({ data, width, onVisibleRangeChange, visibleRange }: RS
         priceRange: { minValue: 0, maxValue: 100 },
       }),
     })
-    line25Ref.current = line25
+    line30Ref.current = line30
 
     // RSI line
     const rsiSeries = chart.addLineSeries({
@@ -120,29 +122,36 @@ export function RSIChart({ data, width, onVisibleRangeChange, visibleRange }: RS
 
     // Subscribe to visible range changes
     chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-      onVisibleRangeChange?.(range)
+      if (!isSettingRange.current) {
+        onVisibleRangeChange?.(range)
+      }
     })
 
     return () => {
       chart.remove()
       chartRef.current = null
       rsiSeriesRef.current = null
-      line75Ref.current = null
+      line70Ref.current = null
       line50Ref.current = null
-      line25Ref.current = null
+      line30Ref.current = null
     }
   }, [width, onVisibleRangeChange])
 
   // Sync visible range from main chart
   useEffect(() => {
     if (chartRef.current && visibleRange) {
+      isSettingRange.current = true
       chartRef.current.timeScale().setVisibleLogicalRange(visibleRange)
+      // Reset flag after a small delay to allow the change to propagate
+      setTimeout(() => {
+        isSettingRange.current = false
+      }, 0)
     }
   }, [visibleRange])
 
   // Update RSI data
   useEffect(() => {
-    if (!rsiSeriesRef.current || !line75Ref.current || !line50Ref.current || !line25Ref.current || data.length === 0) return
+    if (!rsiSeriesRef.current || !line70Ref.current || !line50Ref.current || !line30Ref.current || data.length === 0) return
 
     const rsiData: RSIPoint[] = calculateRSI(data, 14)
 
@@ -155,25 +164,32 @@ export function RSIChart({ data, width, onVisibleRangeChange, visibleRange }: RS
 
     rsiSeriesRef.current.setData(lineData)
 
-    // Set horizontal reference lines (70 overbought, 50 middle, 30 oversold)
-    const line70Data: LineData<Time>[] = rsiData.map((d) => ({
-      time: d.time,
+    // Create reference lines spanning the full data range (use candle times, not RSI times)
+    const fullTimeRange = data.map((d) => d.time)
+
+    const line70Data: LineData<Time>[] = fullTimeRange.map((time) => ({
+      time,
       value: 70,
     }))
-    line75Ref.current.setData(line70Data)
+    line70Ref.current.setData(line70Data)
 
-    const line50Data: LineData<Time>[] = rsiData.map((d) => ({
-      time: d.time,
+    const line50Data: LineData<Time>[] = fullTimeRange.map((time) => ({
+      time,
       value: 50,
     }))
     line50Ref.current.setData(line50Data)
 
-    const line30Data: LineData<Time>[] = rsiData.map((d) => ({
-      time: d.time,
+    const line30Data: LineData<Time>[] = fullTimeRange.map((time) => ({
+      time,
       value: 30,
     }))
-    line25Ref.current.setData(line30Data)
-  }, [data])
+    line30Ref.current.setData(line30Data)
+
+    // After setting data, sync the visible range
+    if (chartRef.current && visibleRange) {
+      chartRef.current.timeScale().setVisibleLogicalRange(visibleRange)
+    }
+  }, [data, visibleRange])
 
   // Resize chart when width changes
   useEffect(() => {
