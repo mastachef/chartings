@@ -34,7 +34,7 @@ export function RSIChart({ data, width, onVisibleRangeChange, visibleRange }: RS
         horzLines: { visible: false },
       },
       crosshair: {
-        mode: 1,
+        mode: 0, // Normal mode - free cursor movement
         vertLine: {
           color: '#6366f1',
           width: 1,

@@ -58,7 +58,7 @@ export function ChartContainer({ config, onConfigChange }: ChartContainerProps) 
         horzLines: { color: '#27273a' },
       },
       crosshair: {
-        mode: 1,
+        mode: 0, // Normal mode - free cursor movement
         vertLine: {
           color: '#6366f1',
           width: 1,
