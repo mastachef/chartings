@@ -2,7 +2,83 @@ import type { CandleData, Timeframe } from '@/types/chart'
 
 const BASE_URL = 'https://api.coingecko.com/api/v3'
 
-// Cache for symbol to CoinGecko ID lookups
+// Cache TTL in milliseconds (5 minutes for OHLC data, 1 hour for symbol lookups)
+const OHLC_CACHE_TTL = 5 * 60 * 1000
+const SYMBOL_CACHE_TTL = 60 * 60 * 1000
+
+// Rate limiting: minimum delay between requests (ms)
+const MIN_REQUEST_DELAY = 1500
+let lastRequestTime = 0
+
+// Request queue for throttling
+async function throttledFetch(url: string): Promise<Response> {
+  const now = Date.now()
+  const timeSinceLastRequest = now - lastRequestTime
+
+  if (timeSinceLastRequest < MIN_REQUEST_DELAY) {
+    await new Promise(resolve => setTimeout(resolve, MIN_REQUEST_DELAY - timeSinceLastRequest))
+  }
+
+  lastRequestTime = Date.now()
+  return fetch(url)
+}
+
+// Fetch with exponential backoff retry on 429
+async function fetchWithRetry(url: string, maxRetries = 3): Promise<Response> {
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await throttledFetch(url)
+
+      if (response.status === 429) {
+        // Rate limited - wait with exponential backoff
+        const waitTime = Math.min(1000 * Math.pow(2, attempt + 1), 30000) // 2s, 4s, 8s... max 30s
+        console.warn(`CoinGecko rate limited, waiting ${waitTime}ms before retry...`)
+        await new Promise(resolve => setTimeout(resolve, waitTime))
+        continue
+      }
+
+      return response
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error('Fetch failed')
+      // Network error - brief delay before retry
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+  }
+
+  throw lastError || new Error('Max retries exceeded')
+}
+
+// LocalStorage cache helpers
+function getCachedData<T>(key: string): { data: T; timestamp: number } | null {
+  try {
+    const cached = localStorage.getItem(`coingecko_${key}`)
+    if (cached) {
+      return JSON.parse(cached)
+    }
+  } catch {
+    // localStorage not available or parse error
+  }
+  return null
+}
+
+function setCachedData<T>(key: string, data: T): void {
+  try {
+    localStorage.setItem(`coingecko_${key}`, JSON.stringify({
+      data,
+      timestamp: Date.now()
+    }))
+  } catch {
+    // localStorage not available or quota exceeded
+  }
+}
+
+function isCacheValid(timestamp: number, ttl: number): boolean {
+  return Date.now() - timestamp < ttl
+}
+
+// Cache for symbol to CoinGecko ID lookups (in-memory for fast access)
 const symbolToIdCache: Record<string, string> = {}
 
 // Known mappings for symbols that don't match their CoinGecko ID
@@ -49,7 +125,7 @@ function cleanSymbol(symbol: string): string {
 async function searchCoinGeckoId(symbol: string): Promise<string | null> {
   const cleaned = cleanSymbol(symbol)
 
-  // Check cache first
+  // Check in-memory cache first
   if (symbolToIdCache[cleaned]) {
     return symbolToIdCache[cleaned]
   }
@@ -60,10 +136,18 @@ async function searchCoinGeckoId(symbol: string): Promise<string | null> {
     return knownMappings[cleaned]
   }
 
+  // Check localStorage cache
+  const cacheKey = `symbol_${cleaned}`
+  const cached = getCachedData<string>(cacheKey)
+  if (cached && isCacheValid(cached.timestamp, SYMBOL_CACHE_TTL)) {
+    symbolToIdCache[cleaned] = cached.data
+    return cached.data
+  }
+
   try {
     // Search CoinGecko for the symbol
     const searchUrl = `${BASE_URL}/search?query=${cleaned.toLowerCase()}`
-    const response = await fetch(searchUrl)
+    const response = await fetchWithRetry(searchUrl)
 
     if (!response.ok) {
       return null
@@ -79,12 +163,14 @@ async function searchCoinGeckoId(symbol: string): Promise<string | null> {
 
     if (exactMatch) {
       symbolToIdCache[cleaned] = exactMatch.id
+      setCachedData(cacheKey, exactMatch.id)
       return exactMatch.id
     }
 
     // If no exact match, try the first result
     if (coins.length > 0) {
       symbolToIdCache[cleaned] = coins[0].id
+      setCachedData(cacheKey, coins[0].id)
       return coins[0].id
     }
 
@@ -129,22 +215,36 @@ interface MarketChartData {
   total_volumes: [number, number][]
 }
 
-// Fetch volume data from market_chart endpoint
+// Fetch volume data from market_chart endpoint (optional, won't block on failure)
 async function fetchCoinGeckoVolumes(
   coinId: string,
   days: number | string
 ): Promise<Map<number, number>> {
   const volumeMap = new Map<number, number>()
 
+  // Check localStorage cache for volumes
+  const cacheKey = `volume_${coinId}_${days}`
+  const cached = getCachedData<[number, number][]>(cacheKey)
+  if (cached && isCacheValid(cached.timestamp, OHLC_CACHE_TTL)) {
+    for (const [timestamp, volume] of cached.data) {
+      const roundedTs = Math.floor(timestamp / 60000) * 60
+      volumeMap.set(roundedTs, volume)
+    }
+    return volumeMap
+  }
+
   try {
     const url = `${BASE_URL}/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`
-    const response = await fetch(url)
+    const response = await fetchWithRetry(url, 2) // Fewer retries for volumes
 
     if (!response.ok) return volumeMap
 
     const data: MarketChartData = await response.json()
 
     if (data.total_volumes && Array.isArray(data.total_volumes)) {
+      // Cache the raw volume data
+      setCachedData(cacheKey, data.total_volumes)
+
       for (const [timestamp, volume] of data.total_volumes) {
         // Round to nearest minute for matching
         const roundedTs = Math.floor(timestamp / 60000) * 60
@@ -165,17 +265,31 @@ export async function fetchCoinGeckoOHLC(
   const coinId = await getCoinGeckoId(symbol)
   const days = timeframeToDays[timeframe]
 
-  // Fetch OHLC and volumes in parallel
-  const [ohlcResponse, volumeMap] = await Promise.all([
-    fetch(`${BASE_URL}/coins/${coinId}/ohlc?vs_currency=usd&days=${days}`),
-    fetchCoinGeckoVolumes(coinId, days),
-  ])
+  // Check localStorage cache for OHLC data
+  const ohlcCacheKey = `ohlc_${coinId}_${days}`
+  const cachedOhlc = getCachedData<OHLCData[]>(ohlcCacheKey)
 
-  if (!ohlcResponse.ok) {
-    throw new Error(`CoinGecko API error: ${ohlcResponse.status}`)
+  let data: OHLCData[]
+
+  if (cachedOhlc && isCacheValid(cachedOhlc.timestamp, OHLC_CACHE_TTL)) {
+    // Use cached OHLC data
+    data = cachedOhlc.data
+  } else {
+    // Fetch fresh OHLC data with retry
+    const ohlcResponse = await fetchWithRetry(
+      `${BASE_URL}/coins/${coinId}/ohlc?vs_currency=usd&days=${days}`
+    )
+
+    if (!ohlcResponse.ok) {
+      throw new Error(`CoinGecko API error: ${ohlcResponse.status}`)
+    }
+
+    data = await ohlcResponse.json()
+    setCachedData(ohlcCacheKey, data)
   }
 
-  const data: OHLCData[] = await ohlcResponse.json()
+  // Fetch volumes separately (non-blocking, will use cache if available)
+  const volumeMap = await fetchCoinGeckoVolumes(coinId, days)
 
   if (!Array.isArray(data) || data.length === 0) {
     throw new Error('No data returned from CoinGecko')
@@ -254,23 +368,46 @@ export function isCoinGeckoSymbol(_symbol: string): boolean {
 export async function searchCoinGeckoSymbols(query: string): Promise<Array<{ symbol: string; name: string }>> {
   if (query.length < 2) return []
 
+  // Check localStorage cache for search results
+  const cacheKey = `search_${query.toLowerCase()}`
+  const cached = getCachedData<Array<{ symbol: string; name: string; id: string }>>(cacheKey)
+  if (cached && isCacheValid(cached.timestamp, SYMBOL_CACHE_TTL)) {
+    // Restore symbol mappings to in-memory cache
+    for (const coin of cached.data) {
+      symbolToIdCache[coin.symbol.toUpperCase()] = coin.id
+    }
+    return cached.data.map(coin => ({
+      symbol: `${coin.symbol.toUpperCase()}USD`,
+      name: coin.name,
+    }))
+  }
+
   try {
     const searchUrl = `${BASE_URL}/search?query=${encodeURIComponent(query.toLowerCase())}`
-    const response = await fetch(searchUrl)
+    const response = await fetchWithRetry(searchUrl, 2)
 
     if (!response.ok) return []
 
     const data = await response.json()
     const coins = data.coins || []
 
-    return coins.slice(0, 10).map((coin: { symbol: string; name: string; id: string }) => {
+    const results = coins.slice(0, 10).map((coin: { symbol: string; name: string; id: string }) => {
       // Cache the mapping for later use
       symbolToIdCache[coin.symbol.toUpperCase()] = coin.id
       return {
-        symbol: `${coin.symbol.toUpperCase()}USD`,
+        symbol: coin.symbol.toUpperCase(),
         name: coin.name,
+        id: coin.id,
       }
     })
+
+    // Cache the search results
+    setCachedData(cacheKey, results)
+
+    return results.map((coin: { symbol: string; name: string }) => ({
+      symbol: `${coin.symbol}USD`,
+      name: coin.name,
+    }))
   } catch {
     return []
   }
